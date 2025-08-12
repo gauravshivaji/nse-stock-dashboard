@@ -3,5 +3,5 @@ pandas
 yfinance
 matplotlib
 numpy
-
+plotly
 ta
