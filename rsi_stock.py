@@ -1,99 +1,58 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
-import ta
 
-# --------------------
-# Streamlit Page Config
-# --------------------
-st.set_page_config(page_title="NSE Stock Technical Analysis Dashboard", layout="wide")
+st.set_page_config(page_title="🏠 House Price Prediction", layout="centered")
+st.title("🏠 House Price Prediction using Linear Regression")
 
-st.title("📊 NSE Stock Technical Analysis Dashboard")
-st.markdown("Analyze SMA, RSI, MACD, and Bollinger Bands for NSE stocks in real time.")
+# Load dataset
+st.subheader("Upload CSV Dataset")
+uploaded_file = st.file_uploader("Upload your dataset (must include area, bedrooms, location, price)", type=["csv"])
 
-# --------------------
-# Sidebar Inputs
-# --------------------
-st.sidebar.header("Stock & Settings")
-nse_symbol = st.sidebar.text_input(
-    "Enter NSE stock symbol (with .NS)", value="RELIANCE.NS"
-)
-start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2024-01-01"))
-end_date = st.sidebar.date_input("End Date", pd.to_datetime("today"))
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+    st.write("### Dataset Preview", df.head())
 
-# --------------------
-# Fetch Data
-# --------------------
-@st.cache_data
-def load_data(ticker, start, end):
-    df = yf.download(ticker, start=start, end=end)
-    df.dropna(inplace=True)
-    return df
+    # Encode location (if categorical)
+    if df['location'].dtype == 'object':
+        df = pd.get_dummies(df, columns=['location'], drop_first=True)
 
-if st.sidebar.button("Load Data"):
-    df = load_data(nse_symbol, start_date, end_date)
+    X = df.drop("price", axis=1)
+    y = df["price"]
 
-    if df.empty:
-        st.error("No data found. Check symbol or date range.")
-    else:
-        st.subheader(f"Price Data: {nse_symbol}")
-        st.write(df.tail())
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        # --------------------
-        # Technical Indicators
-        # --------------------
-        df["SMA20"] = ta.trend.sma_indicator(df["Close"], window=20)
-        df["SMA50"] = ta.trend.sma_indicator(df["Close"], window=50)
-        df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
-        macd = ta.trend.MACD(df["Close"])
-        df["MACD"] = macd.macd()
-        df["MACD_Signal"] = macd.macd_signal()
-        bb = ta.volatility.BollingerBands(df["Close"], window=20, window_dev=2)
-        df["BB_High"] = bb.bollinger_hband()
-        df["BB_Low"] = bb.bollinger_lband()
+    # Model
+    model = LinearRegression()
+    model.fit(X_train, y_train)
 
-        # --------------------
-        # Plots
-        # --------------------
-        st.subheader("📈 Price Chart with SMA & Bollinger Bands")
-        fig, ax = plt.subplots(figsize=(12,6))
-        ax.plot(df.index, df["Close"], label="Close Price")
-        ax.plot(df.index, df["SMA20"], label="SMA 20", linestyle="--")
-        ax.plot(df.index, df["SMA50"], label="SMA 50", linestyle="--", color="magenta")
-        ax.plot(df.index, df["BB_High"], label="BB High", linestyle=":", color="red")
-        ax.plot(df.index, df["BB_Low"], label="BB Low", linestyle=":", color="green")
-        ax.legend()
-        st.pyplot(fig)
+    # Predictions
+    y_pred = model.predict(X_test)
 
-        st.subheader("📊 RSI (Relative Strength Index)")
-        fig, ax = plt.subplots(figsize=(12,3))
-        ax.plot(df.index, df["RSI"], label="RSI", color="orange")
-        ax.axhline(70, color="red", linestyle="--")
-        ax.axhline(30, color="green", linestyle="--")
-        ax.legend()
-        st.pyplot(fig)
+    # Evaluation
+    st.write(f"**R² Score:** {r2_score(y_test, y_pred):.2f}")
+    st.write(f"**RMSE:** {np.sqrt(mean_squared_error(y_test, y_pred)):.2f}")
 
-        st.subheader("📊 MACD")
-        fig, ax = plt.subplots(figsize=(12,3))
-        ax.plot(df.index, df["MACD"], label="MACD", color="blue")
-        ax.plot(df.index, df["MACD_Signal"], label="Signal", color="red")
-        ax.legend()
-        st.pyplot(fig)
+    # Plot
+    fig, ax = plt.subplots()
+    ax.scatter(y_test, y_pred, alpha=0.7)
+    ax.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+    ax.set_xlabel("Actual Price")
+    ax.set_ylabel("Predicted Price")
+    st.pyplot(fig)
 
-        # --------------------
-        # Signal Logic Example
-        # --------------------
-        latest = df.iloc[-1]
-        signal = None
-        if latest["RSI"] < 30 and latest["Close"] > latest["BB_Low"]:
-            signal = "Possible Buy Signal (Oversold)"
-        elif latest["RSI"] > 70 and latest["Close"] < latest["BB_High"]:
-            signal = "Possible Sell Signal (Overbought)"
-
-        if signal:
-            st.success(signal)
-        else:
-            st.info("No strong signal detected currently.")
+    # User prediction
+    st.subheader("Predict a New Price")
+    input_data = {}
+    for col in X.columns:
+        input_data[col] = st.number_input(f"Enter {col}", value=float(X[col].mean()))
+    input_df = pd.DataFrame([input_data])
+    prediction = model.predict(input_df)[0]
+    st.success(f"Predicted Price: ₹{prediction:,.2f}")
 else:
-    st.info("Enter stock details and click 'Load Data'.")
+    st.info("Please upload a dataset to start.")
